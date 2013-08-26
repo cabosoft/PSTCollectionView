@@ -271,10 +271,8 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
 
 - (void)setFrame:(CGRect)frame {
     if (!CGRectEqualToRect(frame, self.frame)) {
-        CGRect bounds = (CGRect){.origin=self.contentOffset, .size=frame.size};
-        BOOL shouldInvalidate = [self.collectionViewLayout shouldInvalidateLayoutForBoundsChange:bounds];
         [super setFrame:frame];
-        if (shouldInvalidate) {
+        if ([self.collectionViewLayout shouldInvalidateLayoutForBoundsChange:self.bounds]) {
             [self invalidateLayout];
             _collectionViewFlags.fadeCellsForBoundsChange = YES;
         }
@@ -283,9 +281,8 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
 
 - (void)setBounds:(CGRect)bounds {
     if (!CGRectEqualToRect(bounds, self.bounds)) {
-        BOOL shouldInvalidate = [self.collectionViewLayout shouldInvalidateLayoutForBoundsChange:bounds];
         [super setBounds:bounds];
-        if (shouldInvalidate) {
+        if ([self.collectionViewLayout shouldInvalidateLayoutForBoundsChange:bounds]) {
             [self invalidateLayout];
             _collectionViewFlags.fadeCellsForBoundsChange = YES;
         }
@@ -375,7 +372,7 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
     }
 }
 
-- (void)scrollViewDidEndZooming:(UIScrollView *)scrollView withView:(UIView *)view atScale:(CGFloat)scale {
+- (void)scrollViewDidEndZooming:(UIScrollView *)scrollView withView:(UIView *)view atScale:(float)scale {
     id<PSTCollectionViewDelegate> delegate = self.extVars.collectionViewDelegate;
     if ((id)delegate != self && [delegate respondsToSelector:@selector(scrollViewDidEndZooming:withView:atScale:)]) {
         [delegate scrollViewDidEndZooming:scrollView withView:view atScale:scale];
@@ -613,8 +610,18 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
 }
 
 - (NSIndexPath *)indexPathForItemAtPoint:(CGPoint)point {
-    PSTCollectionViewLayoutAttributes *attributes = [[self.collectionViewLayout layoutAttributesForElementsInRect:CGRectMake(point.x, point.y, 1, 1)] lastObject];
-    return attributes.indexPath;
+    __block NSIndexPath *indexPath = nil;
+    [_allVisibleViewsDict enumerateKeysAndObjectsWithOptions:kNilOptions usingBlock:^(id key, id obj, BOOL *stop) {
+        PSTCollectionViewItemKey *itemKey = (PSTCollectionViewItemKey *)key;
+        if (itemKey.type == PSTCollectionViewItemTypeCell) {
+            PSTCollectionViewCell *cell = (PSTCollectionViewCell *)obj;
+            if (CGRectContainsPoint(cell.frame, point)) {
+                indexPath = itemKey.indexPath;
+                *stop = YES;
+            }
+        }
+    }];
+    return indexPath;
 }
 
 - (NSIndexPath *)indexPathForCell:(PSTCollectionViewCell *)cell {
@@ -702,7 +709,7 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
 
     switch (verticalPosition) {
         case PSTCollectionViewScrollPositionCenteredVertically:
-            calculateY = fmax(targetRect.origin.y - ((frame.size.height / 2) - (targetRect.size.height / 2)), -self.contentInset.top);
+            calculateY = fmaxf(targetRect.origin.y - ((frame.size.height / 2) - (targetRect.size.height / 2)), -self.contentInset.top);
             targetRect = CGRectMake(targetRect.origin.x, calculateY, targetRect.size.width, frame.size.height);
             break;
         case PSTCollectionViewScrollPositionTop:
@@ -710,7 +717,7 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
             break;
 
         case PSTCollectionViewScrollPositionBottom:
-            calculateY = fmax(targetRect.origin.y - (frame.size.height - targetRect.size.height), -self.contentInset.top);
+            calculateY = fmaxf(targetRect.origin.y - (frame.size.height - targetRect.size.height), -self.contentInset.top);
             targetRect = CGRectMake(targetRect.origin.x, calculateY, targetRect.size.width, frame.size.height);
             break;
     }
@@ -1116,7 +1123,7 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
             if (layoutAttributes) {
                 PSTCollectionViewScrollPosition scrollPosition = PSTCollectionViewScrollPositionCenteredVertically|PSTCollectionViewScrollPositionCenteredHorizontally;
                 CGRect targetRect = [self makeRect:layoutAttributes.frame toScrollPosition:scrollPosition];
-                targetOffset = CGPointMake(fmax(0.f, targetRect.origin.x), fmax(0.f, targetRect.origin.y));
+                targetOffset = CGPointMake(fmaxf(0.f, targetRect.origin.x), fmaxf(0.f, targetRect.origin.y));
             }
         }
 
@@ -1631,7 +1638,7 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
 
                     [_allVisibleViewsDict removeObjectForKey:key];
 
-                    [(NSMutableArray *)viewsToRemove[@(key.type)] addObject:view];
+                    [((NSMutableArray*)viewsToRemove[@(key.type)]) addObject:view];
 
                 }
             }
@@ -1655,7 +1662,7 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
 
                 [_allVisibleViewsDict removeObjectForKey:key];
 
-                [(NSMutableArray *)viewsToRemove[@(key.type)] addObject:view];
+                [((NSMutableArray*)viewsToRemove[@(key.type)]) addObject:view];
 
             }
         }
@@ -1872,15 +1879,15 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
 
     for (PSTCollectionViewUpdateItem *updateItem in sortedMutableReloadItems) {
         NSAssert(updateItem.indexPathBeforeUpdate.section < [oldCollectionViewData numberOfSections],
-        @"attempt to reload item (%@) that doesn't exist (there are only %ld sections before update)",
-        updateItem.indexPathBeforeUpdate, (long)[oldCollectionViewData numberOfSections]);
+        @"attempt to reload item (%@) that doesn't exist (there are only %d sections before update)",
+        updateItem.indexPathBeforeUpdate, [oldCollectionViewData numberOfSections]);
 
         if (updateItem.indexPathBeforeUpdate.item != NSNotFound) {
             NSAssert(updateItem.indexPathBeforeUpdate.item < [oldCollectionViewData numberOfItemsInSection:updateItem.indexPathBeforeUpdate.section],
-            @"attempt to reload item (%@) that doesn't exist (there are only %ld items in section %ld before update)",
+            @"attempt to reload item (%@) that doesn't exist (there are only %d items in section %d before update)",
             updateItem.indexPathBeforeUpdate,
-            (long)[oldCollectionViewData numberOfItemsInSection:updateItem.indexPathBeforeUpdate.section],
-            (long)updateItem.indexPathBeforeUpdate.section);
+            [oldCollectionViewData numberOfItemsInSection:updateItem.indexPathBeforeUpdate.section],
+            updateItem.indexPathBeforeUpdate.section);
         }
 
         [someMutableArr2 addObject:[[PSTCollectionViewUpdateItem alloc] initWithAction:PSTCollectionUpdateActionDelete
@@ -1895,28 +1902,28 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
     for (PSTCollectionViewUpdateItem *deleteItem in sortedDeletedMutableItems) {
         if ([deleteItem isSectionOperation]) {
             NSAssert(deleteItem.indexPathBeforeUpdate.section < [oldCollectionViewData numberOfSections],
-            @"attempt to delete section (%ld) that doesn't exist (there are only %ld sections before update)",
-            (long)deleteItem.indexPathBeforeUpdate.section,
-            (long)[oldCollectionViewData numberOfSections]);
+            @"attempt to delete section (%d) that doesn't exist (there are only %d sections before update)",
+            deleteItem.indexPathBeforeUpdate.section,
+            [oldCollectionViewData numberOfSections]);
 
             for (PSTCollectionViewUpdateItem *moveItem in sortedMutableMoveItems) {
                 if (moveItem.indexPathBeforeUpdate.section == deleteItem.indexPathBeforeUpdate.section) {
                     if (moveItem.isSectionOperation)
-                    NSAssert(NO, @"attempt to delete and move from the same section %ld", (long)deleteItem.indexPathBeforeUpdate.section);
+                    NSAssert(NO, @"attempt to delete and move from the same section %d", deleteItem.indexPathBeforeUpdate.section);
                     else
                             NSAssert(NO, @"attempt to delete and move from the same section (%@)", moveItem.indexPathBeforeUpdate);
                 }
             }
         }else {
             NSAssert(deleteItem.indexPathBeforeUpdate.section < [oldCollectionViewData numberOfSections],
-            @"attempt to delete item (%@) that doesn't exist (there are only %ld sections before update)",
+            @"attempt to delete item (%@) that doesn't exist (there are only %d sections before update)",
             deleteItem.indexPathBeforeUpdate,
-            (long)[oldCollectionViewData numberOfSections]);
+            [oldCollectionViewData numberOfSections]);
             NSAssert(deleteItem.indexPathBeforeUpdate.item < [oldCollectionViewData numberOfItemsInSection:deleteItem.indexPathBeforeUpdate.section],
-            @"attempt to delete item (%@) that doesn't exist (there are only %ld items in section%ld before update)",
+            @"attempt to delete item (%@) that doesn't exist (there are only %d items in section %d before update)",
             deleteItem.indexPathBeforeUpdate,
-            (long)[oldCollectionViewData numberOfItemsInSection:deleteItem.indexPathBeforeUpdate.section],
-            (long)deleteItem.indexPathBeforeUpdate.section);
+            [oldCollectionViewData numberOfItemsInSection:deleteItem.indexPathBeforeUpdate.section],
+            deleteItem.indexPathBeforeUpdate.section);
 
             for (PSTCollectionViewUpdateItem *moveItem in sortedMutableMoveItems) {
                 NSAssert(![deleteItem.indexPathBeforeUpdate isEqual:moveItem.indexPathBeforeUpdate],
@@ -1938,13 +1945,13 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
         BOOL sectionOperation = [insertItem isSectionOperation];
         if (sectionOperation) {
             NSAssert([indexPath section] < [_collectionViewData numberOfSections],
-            @"attempt to insert %ld but there are only %ld sections after update",
-            (long)[indexPath section], (long)[_collectionViewData numberOfSections]);
+            @"attempt to insert %d but there are only %d sections after update",
+            [indexPath section], [_collectionViewData numberOfSections]);
 
             for (PSTCollectionViewUpdateItem *moveItem in sortedMutableMoveItems) {
                 if ([moveItem.indexPathAfterUpdate isEqual:indexPath]) {
                     if (moveItem.isSectionOperation)
-                    NSAssert(NO, @"attempt to perform an insert and a move to the same section (%ld)", (long)indexPath.section);
+                    NSAssert(NO, @"attempt to perform an insert and a move to the same section (%d)", indexPath.section);
                 }
             }
 
@@ -1954,21 +1961,21 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
 
                 if (nextInsertItem.indexPathAfterUpdate.section == indexPath.section) {
                     NSAssert(nextInsertItem.indexPathAfterUpdate.item < [_collectionViewData numberOfItemsInSection:indexPath.section],
-                    @"attempt to insert item %ld into section %ld, but there are only %ld items in section %ld after the update",
-                    (long)nextInsertItem.indexPathAfterUpdate.item,
-                    (long)indexPath.section,
-                    (long)[_collectionViewData numberOfItemsInSection:indexPath.section],
-                    (long)indexPath.section);
+                    @"attempt to insert item %d into section %d, but there are only %d items in section %d after the update",
+                    nextInsertItem.indexPathAfterUpdate.item,
+                    indexPath.section,
+                    [_collectionViewData numberOfItemsInSection:indexPath.section],
+                    indexPath.section);
                     [sortedInsertMutableItems removeObjectAtIndex:j];
                 }
                 else break;
             }
         }else {
             NSAssert(indexPath.item < [_collectionViewData numberOfItemsInSection:indexPath.section],
-            @"attempt to insert item to (%@) but there are only %ld items in section %ld after update",
+            @"attempt to insert item to (%@) but there are only %d items in section %d after update",
             indexPath,
-            (long)[_collectionViewData numberOfItemsInSection:indexPath.section],
-            (long)indexPath.section);
+            [_collectionViewData numberOfItemsInSection:indexPath.section],
+            indexPath.section);
 
             if (!operations[@(indexPath.section)])
                 operations[@(indexPath.section)] = [NSMutableDictionary dictionary];
@@ -1981,32 +1988,32 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
     for (PSTCollectionViewUpdateItem *sortedItem in sortedMutableMoveItems) {
         if (sortedItem.isSectionOperation) {
             NSAssert(sortedItem.indexPathBeforeUpdate.section < [oldCollectionViewData numberOfSections],
-            @"attempt to move section (%ld) that doesn't exist (%ld sections before update)",
-            (long)sortedItem.indexPathBeforeUpdate.section,
-            (long)[oldCollectionViewData numberOfSections]);
+            @"attempt to move section (%d) that doesn't exist (%d sections before update)",
+            sortedItem.indexPathBeforeUpdate.section,
+            [oldCollectionViewData numberOfSections]);
             NSAssert(sortedItem.indexPathAfterUpdate.section < [_collectionViewData numberOfSections],
-            @"attempt to move section to %ld but there are only %ld sections after update",
-            (long)sortedItem.indexPathAfterUpdate.section,
-            (long)[_collectionViewData numberOfSections]);
+            @"attempt to move section to %d but there are only %d sections after update",
+            sortedItem.indexPathAfterUpdate.section,
+            [_collectionViewData numberOfSections]);
         }else {
             NSAssert(sortedItem.indexPathBeforeUpdate.section < [oldCollectionViewData numberOfSections],
-            @"attempt to move item (%@) that doesn't exist (%ld sections before update)",
-            sortedItem, (long)[oldCollectionViewData numberOfSections]);
+            @"attempt to move item (%@) that doesn't exist (%d sections before update)",
+            sortedItem, [oldCollectionViewData numberOfSections]);
             NSAssert(sortedItem.indexPathBeforeUpdate.item < [oldCollectionViewData numberOfItemsInSection:sortedItem.indexPathBeforeUpdate.section],
-            @"attempt to move item (%@) that doesn't exist (%ld items in section %ld before update)",
+            @"attempt to move item (%@) that doesn't exist (%d items in section %d before update)",
             sortedItem,
-            (long)[oldCollectionViewData numberOfItemsInSection:sortedItem.indexPathBeforeUpdate.section],
-            (long)sortedItem.indexPathBeforeUpdate.section);
+            [oldCollectionViewData numberOfItemsInSection:sortedItem.indexPathBeforeUpdate.section],
+            sortedItem.indexPathBeforeUpdate.section);
 
             NSAssert(sortedItem.indexPathAfterUpdate.section < [_collectionViewData numberOfSections],
-            @"attempt to move item to (%@) but there are only %ld sections after update",
+            @"attempt to move item to (%@) but there are only %d sections after update",
             sortedItem.indexPathAfterUpdate,
-            (long)[_collectionViewData numberOfSections]);
+            [_collectionViewData numberOfSections]);
             NSAssert(sortedItem.indexPathAfterUpdate.item < [_collectionViewData numberOfItemsInSection:sortedItem.indexPathAfterUpdate.section],
-            @"attempt to move item to (%@) but there are only %ld items in section %ld after update",
+            @"attempt to move item to (%@) but there are only %d items in section %d after update",
             sortedItem,
-            (long)[_collectionViewData numberOfItemsInSection:sortedItem.indexPathAfterUpdate.section],
-            (long)sortedItem.indexPathAfterUpdate.section);
+            [_collectionViewData numberOfItemsInSection:sortedItem.indexPathAfterUpdate.section],
+            sortedItem.indexPathAfterUpdate.section);
         }
 
         if (!operations[@(sortedItem.indexPathBeforeUpdate.section)])
@@ -2032,12 +2039,12 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
 
         NSAssert([oldCollectionViewData numberOfItemsInSection:section] + insertedCount - deletedCount + movedInCount - movedOutCount ==
                 [_collectionViewData numberOfItemsInSection:section],
-        @"invalid update in section %ld: number of items after update (%ld) should be equal to the number of items before update (%ld) "\
-                 "plus count of inserted items (%ld), minus count of deleted items (%ld), plus count of items moved in (%ld), minus count of items moved out (%ld)",
-        (long)section,
-        (long)[_collectionViewData numberOfItemsInSection:section],
-        (long)[oldCollectionViewData numberOfItemsInSection:section],
-        (long)insertedCount, (long)deletedCount, (long)movedInCount, (long)movedOutCount);
+        @"invalid update in section %d: number of items after update (%d) should be equal to the number of items before update (%d) "\
+                 "plus count of inserted items (%d), minus count of deleted items (%d), plus count of items moved in (%d), minus count of items moved out (%d)",
+        section,
+        [_collectionViewData numberOfItemsInSection:section],
+        [oldCollectionViewData numberOfItemsInSection:section],
+        insertedCount, deletedCount, movedInCount, movedOutCount);
     }
 #endif
 
@@ -2116,7 +2123,7 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
         NSMutableArray *section = newModel[i];
         for (NSUInteger j = 0; j < section.count; j++) {
             NSInteger newGlobalIndex = [_collectionViewData globalIndexForItemAtIndexPath:[NSIndexPath indexPathForItem:j inSection:i]];
-            if ([section[j] integerValue] != NSNotFound)
+            if ([section[j] intValue] != NSNotFound)
                 oldToNewMap[[section[j] intValue]] = @(newGlobalIndex);
             if (newGlobalIndex != NSNotFound)
                 newToOldMap[newGlobalIndex] = section[j];
@@ -2210,6 +2217,7 @@ static void PSTCollectionViewCommonSetup(PSTCollectionView *_self) {
 ///////////////////////////////////////////////////////////////////////////////////////////
 #pragma mark - Runtime Additions to create UICollectionView
 
+#if __IPHONE_OS_VERSION_MIN_REQUIRED < 60000
 @implementation PSUICollectionView_ @end
 @implementation PSUICollectionViewCell_ @end
 @implementation PSUICollectionReusableView_ @end
@@ -2247,8 +2255,6 @@ static BOOL PSTRegisterClass(NSString *UIClassName, Class PSTClass) {
 
 // Create subclasses that pose as UICollectionView et al, if not available at runtime.
 __attribute__((constructor)) static void PSTCreateUICollectionViewClasses(void) {
-    if (objc_getClass("PSTCollectionViewDisableForwardToUICollectionViewSentinel")) return;
-
     @autoreleasepool {
         // Change superclass at runtime. This allows seamless switching from PST* to UI* at runtime.
         PSTRegisterClass(@"UICollectionView", PSUICollectionView_.class);
@@ -2272,6 +2278,8 @@ __attribute__((constructor)) static void PSTCreateUICollectionViewClasses(void) 
         if ((c = objc_allocateClassPair(PSUICollectionViewController_.class, "PSUICollectionViewController", 0))) objc_registerClassPair(c);
     }
 }
+
+#endif
 
 CGFloat PSTSimulatorAnimationDragCoefficient(void) {
     static CGFloat (*UIAnimationDragCoefficient)(void) = NULL;
